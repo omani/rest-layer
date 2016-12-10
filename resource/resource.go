@@ -235,8 +235,25 @@ func (r *Resource) Use(e interface{}) error {
 	return r.hooks.use(e)
 }
 
-// Get get one item by its id. If item is not found, ErrNotFound error is returned
-func (r *Resource) Get(ctx context.Context, id interface{}) (item *Item, err error) {
+// GetByField get one item by its field name. If item is not found, ErrNotFound error is returned
+func (r *Resource) GetByField(ctx context.Context, field string, value interface{}) (item *Item, err error) {
+	if LoggerLevel <= LogLevelDebug && Logger != nil {
+		defer func(t time.Time) {
+			Logger(ctx, LogLevelDebug, fmt.Sprintf("%s.Get(%v)", r.path, value), map[string]interface{}{
+				"duration": time.Since(t),
+				"error":    err,
+			})
+		}(time.Now())
+	}
+	if err = r.hooks.onGet(ctx, field); err == nil {
+		item, err = r.storage.GetByField(ctx, field, value)
+	}
+	r.hooks.onGot(ctx, &item, &err)
+	return
+}
+
+// GetByID get one item by its id. If item is not found, ErrNotFound error is returned
+func (r *Resource) GetByID(ctx context.Context, id interface{}) (item *Item, err error) {
 	if LoggerLevel <= LogLevelDebug && Logger != nil {
 		defer func(t time.Time) {
 			Logger(ctx, LogLevelDebug, fmt.Sprintf("%s.Get(%v)", r.path, id), map[string]interface{}{
@@ -246,7 +263,7 @@ func (r *Resource) Get(ctx context.Context, id interface{}) (item *Item, err err
 		}(time.Now())
 	}
 	if err = r.hooks.onGet(ctx, id); err == nil {
-		item, err = r.storage.Get(ctx, id)
+		item, err = r.storage.GetByID(ctx, id)
 	}
 	r.hooks.onGot(ctx, &item, &err)
 	return
@@ -254,7 +271,7 @@ func (r *Resource) Get(ctx context.Context, id interface{}) (item *Item, err err
 
 // MultiGet get some items by their id and return them in the same order. If one or more item(s)
 // is not found, their slot in the response is set to nil.
-func (r *Resource) MultiGet(ctx context.Context, ids []interface{}) (items []*Item, err error) {
+func (r *Resource) MultiGetByID(ctx context.Context, ids []interface{}) (items []*Item, err error) {
 	if LoggerLevel <= LogLevelDebug && Logger != nil {
 		defer func(t time.Time) {
 			Logger(ctx, LogLevelDebug, fmt.Sprintf("%s.MultiGet(%v)", r.path, ids), map[string]interface{}{
@@ -274,7 +291,7 @@ func (r *Resource) MultiGet(ctx context.Context, ids []interface{}) (items []*It
 	}
 	// Perform the storage request if none of the pre-hook returned an err
 	if err == nil {
-		items, err = r.storage.MultiGet(ctx, ids)
+		items, err = r.storage.MultiGetByID(ctx, ids)
 	}
 	var errOverwrite error
 	for i := range ids {

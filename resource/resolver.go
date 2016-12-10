@@ -101,7 +101,7 @@ func getAsyncGetResolver(p map[string]interface{}) []asyncSelectorResolver {
 				ids[i] = ag.id
 			}
 			// Perform the mget
-			items, err := rsrc.MultiGet(ctx, ids)
+			items, err := rsrc.MultiGetByID(ctx, ids)
 			if err != nil {
 				done <- err
 				return

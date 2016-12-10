@@ -188,15 +188,34 @@ func checkReferences(ctx context.Context, payload map[string]interface{}, s sche
 				if !ok {
 					return &Error{500, "Router not available in context", nil}
 				}
-				rsrc, found := router.GetResource(ref.Path, nil)
-				if !found {
-					return &Error{500, fmt.Sprintf("Invalid resource reference for field `%s': %s", name, ref.Path), nil}
-				}
-				_, err := rsrc.Get(ctx, value)
-				if err == resource.ErrNotFound {
-					return &Error{404, fmt.Sprintf("Resource reference not found for field `%s'", name), nil}
-				} else if err != nil {
-					return &Error{500, fmt.Sprintf("Error fetching resource reference for field `%s': %v", name, err), nil}
+				// Check if ref.Path is a subset of paths
+				splitPath := strings.Split(ref.Path, ".")
+
+				if len(splitPath) > 1 {
+					rsrc, found := router.GetResource(splitPath[0], nil)
+					if !found {
+						return &Error{500, fmt.Sprintf("Invalid resource reference for field `%s': %s", name, ref.Path), nil}
+					}
+					path := strings.Join(splitPath[1:], ".")
+					_, err := rsrc.GetByField(ctx, path, value)
+					if err == resource.ErrNotFound {
+						return &Error{404, fmt.Sprintf("Resource reference not found for field `%s'", name), nil}
+					} else if err != nil {
+						return &Error{500, fmt.Sprintf("Error fetching resource reference for field `%s': %v", name, err), nil}
+					}
+				} else {
+					// ref.Path is not a subset of paths
+					rsrc, found := router.GetResource(ref.Path, nil)
+
+					if !found {
+						return &Error{500, fmt.Sprintf("Invalid resource reference for field `%s': %s", name, ref.Path), nil}
+					}
+					_, err := rsrc.GetByID(ctx, value)
+					if err == resource.ErrNotFound {
+						return &Error{404, fmt.Sprintf("Resource reference not found for field `%s'", name), nil}
+					} else if err != nil {
+						return &Error{500, fmt.Sprintf("Error fetching resource reference for field `%s': %v", name, err), nil}
+					}
 				}
 			}
 		}

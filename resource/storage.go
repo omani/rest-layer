@@ -77,22 +77,37 @@ type MultiGetter interface {
 	// must just omit the item in the result.
 	//
 	// The items in the result are expected to match the order of the requested ids.
-	MultiGet(ctx context.Context, ids []interface{}) ([]*Item, error)
+	MultiGetByID(ctx context.Context, ids []interface{}) ([]*Item, error)
+	MultiGetByField(ctx context.Context, field string, value []interface{}) ([]*Item, error)
 }
 
 type storageHandler interface {
 	Storer
 	MultiGetter
-	Get(ctx context.Context, id interface{}) (item *Item, err error)
+	GetByField(ctx context.Context, field string, value interface{}) (item *Item, err error)
+	GetByID(ctx context.Context, id interface{}) (item *Item, err error)
 }
 
 type storageWrapper struct {
 	Storer
 }
 
-// Get get one item by its id. If item is not found, ErrNotFound error is returned
-func (s storageWrapper) Get(ctx context.Context, id interface{}) (item *Item, err error) {
-	items, err := s.MultiGet(ctx, []interface{}{id})
+// GetByField get one item by its field name. If item is not found, ErrNotFound error is returned
+func (s storageWrapper) GetByField(ctx context.Context, field string, value interface{}) (item *Item, err error) {
+	items, err := s.MultiGetByField(ctx, field, []interface{}{value})
+	if err == nil {
+		if len(items) == 1 && items[0] != nil {
+			item = items[0]
+		} else {
+			err = ErrNotFound
+		}
+	}
+	return
+}
+
+// GetByID get one item by its id. If item is not found, ErrNotFound error is returned
+func (s storageWrapper) GetByID(ctx context.Context, id interface{}) (item *Item, err error) {
+	items, err := s.MultiGetByID(ctx, []interface{}{id})
 	if err == nil {
 		if len(items) == 1 && items[0] != nil && items[0].ID == id {
 			item = items[0]
@@ -103,9 +118,9 @@ func (s storageWrapper) Get(ctx context.Context, id interface{}) (item *Item, er
 	return
 }
 
-// MultiGet get some items by their id and return them in the same order. If one or more item(s)
+// MultiGetByField get some items by their field name and return them in the same order. If one or more item(s)
 // is not found, their slot in the response is set to nil.
-func (s storageWrapper) MultiGet(ctx context.Context, ids []interface{}) (items []*Item, err error) {
+func (s storageWrapper) MultiGetByField(ctx context.Context, field string, values []interface{}) (items []*Item, err error) {
 	if s.Storer == nil {
 		return nil, ErrNoStorage
 	}
@@ -115,7 +130,55 @@ func (s storageWrapper) MultiGet(ctx context.Context, ids []interface{}) (items 
 	var tmp []*Item
 	if mg, ok := s.Storer.(MultiGetter); ok {
 		// If native support, use it
-		tmp, err = mg.MultiGet(ctx, ids)
+		tmp, err = mg.MultiGetByField(ctx, field, values)
+	} else {
+		// Otherwise, emulate MultiGetter with a Find query
+		l := NewLookup()
+		if len(values) == 1 {
+			l.AddQuery(schema.Query{
+				schema.Equal{Field: field, Value: values[0]},
+			})
+		} else {
+			v := make([]schema.Value, len(values))
+			for i, id := range values {
+				v[i] = schema.Value(id)
+			}
+			l.AddQuery(schema.Query{
+				schema.In{Field: field, Values: v},
+			})
+		}
+		var list *ItemList
+		list, err = s.Storer.Find(ctx, l, 1, len(values))
+		if list != nil {
+			tmp = list.Items
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	// Sort items as requested
+	// items = make([]*Item, len(values))
+	// for i, value := range values {
+	// 	for _, item := range tmp {
+	// Use reflection here to address item."field variable"
+	// 	}
+	// }
+	return tmp, nil
+}
+
+// MultiGetByID get some items by their id and return them in the same order. If one or more item(s)
+// is not found, their slot in the response is set to nil.
+func (s storageWrapper) MultiGetByID(ctx context.Context, ids []interface{}) (items []*Item, err error) {
+	if s.Storer == nil {
+		return nil, ErrNoStorage
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	var tmp []*Item
+	if mg, ok := s.Storer.(MultiGetter); ok {
+		// If native support, use it
+		tmp, err = mg.MultiGetByID(ctx, ids)
 	} else {
 		// Otherwise, emulate MultiGetter with a Find query
 		l := NewLookup()
@@ -166,12 +229,12 @@ func (s storageWrapper) Find(ctx context.Context, lookup *Lookup, page, perPage 
 			case schema.Equal:
 				// When query pattern is a single document request by its id, use the multi get API
 				if id, ok := op.Value.(string); ok && op.Field == "id" && (perPage == 1 || perPage < 0) {
-					return wrapMgetList(mg.MultiGet(ctx, []interface{}{id}))
+					return wrapMgetList(mg.MultiGetByID(ctx, []interface{}{id}))
 				}
 			case schema.In:
 				// When query pattern is a list of documents request by their ids, use the multi get API
 				if op.Field == "id" && perPage < 0 || perPage == len(op.Values) {
-					return wrapMgetList(mg.MultiGet(ctx, valuesToInterface(op.Values)))
+					return wrapMgetList(mg.MultiGetByID(ctx, valuesToInterface(op.Values)))
 				}
 			}
 		}
