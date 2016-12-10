@@ -176,7 +176,7 @@ func checkIntegrityRequest(r *http.Request, original *resource.Item) *Error {
 
 // checkReferences ensures that fields with the Reference validator reference an existing object
 func checkReferences(ctx context.Context, payload map[string]interface{}, s schema.Validator) *Error {
-	for name, value := range payload {
+	for name, values := range payload {
 		field := s.GetField(name)
 		if field == nil {
 			continue
@@ -188,6 +188,7 @@ func checkReferences(ctx context.Context, payload map[string]interface{}, s sche
 				if !ok {
 					return &Error{500, "Router not available in context", nil}
 				}
+
 				// Check if ref.Path is a subset of paths
 				splitPath := strings.Split(ref.Path, ".")
 
@@ -197,7 +198,7 @@ func checkReferences(ctx context.Context, payload map[string]interface{}, s sche
 						return &Error{500, fmt.Sprintf("Invalid resource reference for field `%s': %s", name, ref.Path), nil}
 					}
 					path := strings.Join(splitPath[1:], ".")
-					_, err := rsrc.GetByField(ctx, path, value)
+					_, err := rsrc.GetByField(ctx, path, values)
 					if err == resource.ErrNotFound {
 						return &Error{404, fmt.Sprintf("Resource reference not found for field `%s'", name), nil}
 					} else if err != nil {
@@ -210,7 +211,47 @@ func checkReferences(ctx context.Context, payload map[string]interface{}, s sche
 					if !found {
 						return &Error{500, fmt.Sprintf("Invalid resource reference for field `%s': %s", name, ref.Path), nil}
 					}
-					_, err := rsrc.GetByID(ctx, value)
+					_, err := rsrc.GetByID(ctx, values)
+					if err == resource.ErrNotFound {
+						return &Error{404, fmt.Sprintf("Resource reference not found for field `%s'", name), nil}
+					} else if err != nil {
+						return &Error{500, fmt.Sprintf("Error fetching resource reference for field `%s': %v", name, err), nil}
+					}
+				}
+			}
+
+			// We're not done yet. Check if it is an ReferenceArray
+			if ref, ok := field.Validator.(*schema.ReferenceArray); ok {
+				router, ok := IndexFromContext(ctx)
+				if !ok {
+					return &Error{500, "Router not available in context", nil}
+				}
+
+				// Check if ref.Path is a subset of paths
+				splitPath := strings.Split(ref.Path, ".")
+
+				if len(splitPath) > 1 {
+					rsrc, found := router.GetResource(splitPath[0], nil)
+					if !found {
+						return &Error{500, fmt.Sprintf("Invalid resource reference for field `%s': %s", name, ref.Path), nil}
+					}
+					path := strings.Join(splitPath[1:], ".")
+					for _, value := range values.([]interface{}) {
+						_, err := rsrc.GetByField(ctx, path, value)
+						if err == resource.ErrNotFound {
+							return &Error{404, fmt.Sprintf("Resource reference not found for field `%s'", name), nil}
+						} else if err != nil {
+							return &Error{500, fmt.Sprintf("Error fetching resource reference for field `%s': %v", name, err), nil}
+						}
+					}
+				} else {
+					// ref.Path is not a subset of paths
+					rsrc, found := router.GetResource(ref.Path, nil)
+
+					if !found {
+						return &Error{500, fmt.Sprintf("Invalid resource reference for field `%s': %s", name, ref.Path), nil}
+					}
+					_, err := rsrc.GetByID(ctx, values)
 					if err == resource.ErrNotFound {
 						return &Error{404, fmt.Sprintf("Resource reference not found for field `%s'", name), nil}
 					} else if err != nil {
@@ -220,8 +261,8 @@ func checkReferences(ctx context.Context, payload map[string]interface{}, s sche
 			}
 		}
 		// Check sub-schema if any
-		if field.Schema != nil && value != nil {
-			if subPayload, ok := value.(map[string]interface{}); ok {
+		if field.Schema != nil && values != nil {
+			if subPayload, ok := values.(map[string]interface{}); ok {
 				if err := checkReferences(ctx, subPayload, field.Schema); err != nil {
 					return err
 				}
