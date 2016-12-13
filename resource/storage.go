@@ -20,7 +20,7 @@ type Storer interface {
 	// If the fetching of the data is not immediate, the method must listen for cancellation
 	// on the passed ctx. If the operation is stopped due to context cancellation, the
 	// function must return the result of the ctx.Err() method.
-	Find(ctx context.Context, lookup *Lookup, page, perPage int) (*ItemList, error)
+	Find(ctx context.Context, lookup *Lookup, page, perPage int, skip int) (*ItemList, error)
 	// Insert stores new items in the backend store. If any of the items does already exist,
 	// no item should be inserted and a resource.ErrConflict must be returned. The insertion
 	// of the items must be performed atomically. If more than one item is provided and the
@@ -148,7 +148,7 @@ func (s storageWrapper) MultiGetByField(ctx context.Context, field string, value
 			})
 		}
 		var list *ItemList
-		list, err = s.Storer.Find(ctx, l, 1, len(values))
+		list, err = s.Storer.Find(ctx, l, 1, len(values), 0)
 		if list != nil {
 			tmp = list.Items
 		}
@@ -196,7 +196,7 @@ func (s storageWrapper) MultiGetByID(ctx context.Context, ids []interface{}) (it
 			})
 		}
 		var list *ItemList
-		list, err = s.Storer.Find(ctx, l, 1, len(ids))
+		list, err = s.Storer.Find(ctx, l, 1, len(ids), 0)
 		if list != nil {
 			tmp = list.Items
 		}
@@ -217,7 +217,7 @@ func (s storageWrapper) MultiGetByID(ctx context.Context, ids []interface{}) (it
 }
 
 // Find tries to use storer MultiGet with some pattern or Find otherwise
-func (s storageWrapper) Find(ctx context.Context, lookup *Lookup, page, perPage int) (list *ItemList, err error) {
+func (s storageWrapper) Find(ctx context.Context, lookup *Lookup, page, perPage int, skip int) (list *ItemList, err error) {
 	if s.Storer == nil {
 		return nil, ErrNoStorage
 	}
@@ -239,7 +239,7 @@ func (s storageWrapper) Find(ctx context.Context, lookup *Lookup, page, perPage 
 			}
 		}
 	}
-	return s.Storer.Find(ctx, lookup, page, perPage)
+	return s.Storer.Find(ctx, lookup, page, perPage, skip)
 }
 
 // wrapMgetList wraps a MultiGet response into a resource.ItemList response

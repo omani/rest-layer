@@ -322,7 +322,7 @@ func (r *Resource) MultiGetByID(ctx context.Context, ids []interface{}) (items [
 }
 
 // Find implements Storer interface
-func (r *Resource) Find(ctx context.Context, lookup *Lookup, page, perPage int) (list *ItemList, err error) {
+func (r *Resource) Find(ctx context.Context, lookup *Lookup, page, perPage int, skip int) (list *ItemList, err error) {
 	if LoggerLevel <= LogLevelDebug && Logger != nil {
 		defer func(t time.Time) {
 			found := -1
@@ -336,8 +336,8 @@ func (r *Resource) Find(ctx context.Context, lookup *Lookup, page, perPage int) 
 			})
 		}(time.Now())
 	}
-	if err = r.hooks.onFind(ctx, lookup, page, perPage); err == nil {
-		list, err = r.storage.Find(ctx, lookup, page, perPage)
+	if err = r.hooks.onFind(ctx, lookup, page, perPage, skip); err == nil {
+		list, err = r.storage.Find(ctx, lookup, page, perPage, skip)
 	}
 	r.hooks.onFound(ctx, lookup, &list, &err)
 	return
